@@ -14,11 +14,11 @@ type TodoEventHandler interface {
 }
 
 type Handler struct {
-	indexer *bleve.Indexer
+	indexer bleve.IndexerInterface
 	logger  *logging.Logger
 }
 
-func NewTodoHandler(indexer *bleve.Indexer, logger *logging.Logger) TodoEventHandler {
+func NewTodoHandler(indexer bleve.IndexerInterface, logger *logging.Logger) TodoEventHandler {
 	return &Handler{indexer, logger}
 }
 

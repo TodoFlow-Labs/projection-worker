@@ -12,9 +12,17 @@ type Indexer struct {
 	logger *logging.Logger
 }
 
+type IndexerInterface interface {
+	Create(id string, doc any)
+	Update(id string, doc any)
+	Delete(id string)
+}
+
 func NewIndexer(path string, logger *logging.Logger) *Indexer {
 	return &Indexer{path, logger}
 }
+
+var _ IndexerInterface = (*Indexer)(nil)
 
 func (i *Indexer) openIndex() (bleve.Index, error) {
 	i.logger.Debug().Msgf("opening index at path: %s", i.path)
@@ -26,7 +34,7 @@ func (i *Indexer) openIndex() (bleve.Index, error) {
 	return bleve.Open(i.path)
 }
 
-func (i *Indexer) Create(id string, doc interface{}) {
+func (i *Indexer) Create(id string, doc any) {
 	index, err := i.openIndex()
 	if err != nil {
 		i.logger.Error().Err(err).Msg("bleve.Open failed")
@@ -37,7 +45,7 @@ func (i *Indexer) Create(id string, doc interface{}) {
 	index.Index(id, doc)
 }
 
-func (i *Indexer) Update(id string, doc interface{}) {
+func (i *Indexer) Update(id string, doc any) {
 	i.logger.Debug().Msgf("indexing (update) document with id: %s", id)
 	i.Create(id, doc)
 }

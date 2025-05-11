@@ -16,11 +16,11 @@ type MockIndexer struct {
 	mock.Mock
 }
 
-func (m *MockIndexer) Create(id string, doc interface{}) {
+func (m *MockIndexer) Create(id string, doc any) {
 	m.Called(id, doc)
 }
 
-func (m *MockIndexer) Update(id string, doc interface{}) {
+func (m *MockIndexer) Update(id string, doc any) {
 	m.Called(id, doc)
 }
 
@@ -33,7 +33,13 @@ func TestHandler_HandleCreate(t *testing.T) {
 	logger := logging.New("debug")
 	handler := handlers.NewTodoHandler(mockIdx, logger)
 
-	event := dto.TodoCreatedEvent{ID: "c1", Title: "test"}
+	event := dto.TodoCreatedEvent{
+		BaseEvent: dto.BaseEvent{
+			ID:   "c1",
+			Type: dto.TodoCreatedEvt,
+		},
+		Title: "test",
+	}
 	data, _ := json.Marshal(event)
 	mockIdx.On("Create", "c1", event).Once()
 
@@ -48,7 +54,13 @@ func TestHandler_HandleUpdate(t *testing.T) {
 	logger := logging.New("debug")
 	handler := handlers.NewTodoHandler(mockIdx, logger)
 
-	event := dto.TodoUpdatedEvent{ID: "u1", Title: "test"}
+	event := dto.TodoUpdatedEvent{
+		BaseEvent: dto.BaseEvent{
+			ID:   "u1",
+			Type: dto.TodoUpdatedEvt,
+		},
+		Title: "test",
+	}
 	data, _ := json.Marshal(event)
 	mockIdx.On("Update", "u1", event).Once()
 
@@ -63,7 +75,12 @@ func TestHandler_HandleDelete(t *testing.T) {
 	logger := logging.New("debug")
 	handler := handlers.NewTodoHandler(mockIdx, logger)
 
-	event := dto.TodoDeletedEvent{ID: "d1"}
+	event := dto.TodoDeletedEvent{
+		BaseEvent: dto.BaseEvent{
+			ID:   "d1",
+			Type: dto.TodoDeletedEvt,
+		},
+	}
 	data, _ := json.Marshal(event)
 	mockIdx.On("Delete", "d1").Once()
 
