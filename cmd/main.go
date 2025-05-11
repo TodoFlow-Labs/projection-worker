@@ -9,8 +9,10 @@ import (
 	"github.com/nats-io/nats.go"
 
 	"github.com/todoflow-labs/projection-worker/internal/config"
-	"github.com/todoflow-labs/projection-worker/internal/logging"
+
 	"github.com/todoflow-labs/shared-dtos/dto"
+	"github.com/todoflow-labs/shared-dtos/logging"
+	"github.com/todoflow-labs/shared-dtos/metrics"
 )
 
 func main() {
@@ -21,6 +23,9 @@ func main() {
 	}
 	logger := logging.New(cfg.LogLevel)
 	logger.Info().Msg("projection-worker starting")
+
+	metrics.Init(cfg.MetricsAddr)
+	logger.Debug().Msgf("metrics server listening on %s", cfg.MetricsAddr)
 
 	// 2) Connect to NATS + JetStream once
 	nc, err := nats.Connect(cfg.NATSURL)
