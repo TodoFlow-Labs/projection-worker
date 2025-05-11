@@ -1,10 +1,10 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/nats-io/nats.go"
-	"github.com/todoflow-labs/projection-worker/internal/bleve"
 	"github.com/todoflow-labs/shared-dtos/dto"
 	"github.com/todoflow-labs/shared-dtos/logging"
 )
@@ -13,13 +13,19 @@ type TodoEventHandler interface {
 	Handle(m *nats.Msg)
 }
 
-type Handler struct {
-	indexer bleve.IndexerInterface
-	logger  *logging.Logger
+type Repository interface {
+	Create(ctx context.Context, doc dto.SearchResult) error
+	Update(ctx context.Context, doc dto.SearchResult) error
+	Delete(ctx context.Context, id string) error
 }
 
-func NewTodoHandler(indexer bleve.IndexerInterface, logger *logging.Logger) TodoEventHandler {
-	return &Handler{indexer, logger}
+type Handler struct {
+	repo   Repository
+	logger logging.Logger
+}
+
+func NewTodoHandler(repo Repository, logger logging.Logger) TodoEventHandler {
+	return &Handler{repo: repo, logger: logger}
 }
 
 func (h *Handler) Handle(m *nats.Msg) {
@@ -36,19 +42,40 @@ func (h *Handler) Handle(m *nats.Msg) {
 		var ev dto.TodoCreatedEvent
 		if json.Unmarshal(m.Data, &ev) == nil {
 			h.logger.Debug().Msgf("handling TodoCreatedEvent id=%s", ev.ID)
-			h.indexer.Create(ev.ID, ev)
+			_ = h.repo.Create(context.Background(), dto.SearchResult{
+				ID:          ev.ID,
+				UserID:      ev.UserID,
+				Title:       ev.Title,
+				Description: ev.Description,
+				Completed:   false,
+				DueDate:     ev.DueDate,
+				Priority:    ev.Priority,
+				Tags:        ev.Tags,
+				CreatedAt:   ev.Timestamp,
+				UpdatedAt:   ev.Timestamp,
+			})
 		}
 	case dto.TodoUpdatedEvt:
 		var ev dto.TodoUpdatedEvent
 		if json.Unmarshal(m.Data, &ev) == nil {
 			h.logger.Debug().Msgf("handling TodoUpdatedEvent id=%s", ev.ID)
-			h.indexer.Update(ev.ID, ev)
+			_ = h.repo.Update(context.Background(), dto.SearchResult{
+				ID:          ev.ID,
+				UserID:      ev.UserID,
+				Title:       ev.Title,
+				Description: ev.Description,
+				Completed:   ev.Completed,
+				DueDate:     ev.DueDate,
+				Priority:    ev.Priority,
+				Tags:        ev.Tags,
+				UpdatedAt:   ev.Timestamp,
+			})
 		}
 	case dto.TodoDeletedEvt:
 		var ev dto.TodoDeletedEvent
 		if json.Unmarshal(m.Data, &ev) == nil {
 			h.logger.Debug().Msgf("handling TodoDeletedEvent id=%s", ev.ID)
-			h.indexer.Delete(ev.ID)
+			_ = h.repo.Delete(context.Background(), ev.ID)
 		}
 	default:
 		h.logger.Warn().Msgf("unknown event type: %s", base.Type)

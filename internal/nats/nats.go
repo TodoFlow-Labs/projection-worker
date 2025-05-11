@@ -1,6 +1,7 @@
 package nats
 
 import (
+	"context"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -12,10 +13,10 @@ import (
 type Consumer struct {
 	js     nats.JetStreamContext
 	sub    *nats.Subscription
-	logger *logging.Logger
+	logger logging.Logger
 }
 
-func NewConsumer(cfg *config.Config, logger *logging.Logger) *Consumer {
+func NewConsumer(cfg *config.Config, logger logging.Logger) *Consumer {
 	nc, err := nats.Connect(cfg.NATSURL)
 	if err != nil {
 		logger.Fatal().Err(err).Msg("nats.Connect failed")
@@ -41,25 +42,47 @@ func NewConsumer(cfg *config.Config, logger *logging.Logger) *Consumer {
 }
 
 func (c *Consumer) Consume(handler handlers.TodoEventHandler) error {
+	ctx := context.Background()
 	c.logger.Debug().Msg("starting message consume loop")
+
 	for {
-		batch, err := c.sub.Fetch(5, nats.MaxWait(2*time.Second))
-		if err != nil && err != nats.ErrTimeout {
-			c.logger.Error().Err(err).Msg("Fetch error")
-			continue
-		}
+		select {
+		case <-ctx.Done():
+			c.logger.Info().Msg("context cancelled, stopping consumer")
+			return nil
 
-		if len(batch) == 0 {
-			c.logger.Debug().Msg("no messages fetched, sleeping")
-		} else {
+		default:
+			batch, err := c.sub.Fetch(5, nats.MaxWait(2*time.Second))
+			if err != nil && err != nats.ErrTimeout {
+				c.logger.Error().Err(err).Msg("Fetch error")
+				continue
+			}
+
+			if len(batch) == 0 {
+				c.logger.Debug().Msg("no messages fetched, sleeping")
+				continue
+			}
+
 			c.logger.Debug().Msgf("fetched %d message(s)", len(batch))
-		}
 
-		for _, m := range batch {
-			c.logger.Debug().Msg("processing message")
-			handler.Handle(m)
-			c.logger.Debug().Msg("message acknowledged")
-			m.Ack()
+			for _, m := range batch {
+				func(msg *nats.Msg) {
+					defer func() {
+						if r := recover(); r != nil {
+							c.logger.Error().Interface("recover", r).Msg("handler panic recovered")
+						}
+					}()
+
+					c.logger.Debug().Msg("processing message")
+					handler.Handle(msg)
+
+					if err := msg.Ack(); err != nil {
+						c.logger.Error().Err(err).Msg("Ack failed")
+					} else {
+						c.logger.Debug().Msg("message acknowledged")
+					}
+				}(m)
+			}
 		}
 	}
 }

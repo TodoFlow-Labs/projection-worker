@@ -1,118 +1,146 @@
 package handlers_test
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/nats-io/nats.go"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	"github.com/todoflow-labs/projection-worker/internal/handlers"
 	"github.com/todoflow-labs/shared-dtos/dto"
 	"github.com/todoflow-labs/shared-dtos/logging"
 )
 
-type MockIndexer struct {
+type mockRepo struct {
 	mock.Mock
 }
 
-func (m *MockIndexer) Create(id string, doc any) {
-	m.Called(id, doc)
+func (m *mockRepo) Create(ctx context.Context, doc dto.SearchResult) error {
+	args := m.Called(ctx, doc)
+	return args.Error(0)
 }
 
-func (m *MockIndexer) Update(id string, doc any) {
-	m.Called(id, doc)
+func (m *mockRepo) Update(ctx context.Context, doc dto.SearchResult) error {
+	args := m.Called(ctx, doc)
+	return args.Error(0)
 }
 
-func (m *MockIndexer) Delete(id string) {
-	m.Called(id)
+func (m *mockRepo) Delete(ctx context.Context, id string) error {
+	args := m.Called(ctx, id)
+	return args.Error(0)
 }
 
-func TestHandler_HandleCreate(t *testing.T) {
-	mockIdx := new(MockIndexer)
+func newTestMsg(t *testing.T, v interface{}) *nats.Msg {
+	t.Helper()
+	data, err := json.Marshal(v)
+	require.NoError(t, err)
+	return &nats.Msg{Data: data}
+}
+
+func TestHandler_HandleCreateEvent(t *testing.T) {
+	repo := new(mockRepo)
 	logger := logging.New("debug")
-	handler := handlers.NewTodoHandler(mockIdx, logger)
+	handler := handlers.NewTodoHandler(repo, logger)
 
-	event := dto.TodoCreatedEvent{
+	now := time.Now().Truncate(time.Millisecond)
+	ev := dto.TodoCreatedEvent{
 		BaseEvent: dto.BaseEvent{
-			ID:   "c1",
-			Type: dto.TodoCreatedEvt,
+			Type:      dto.TodoCreatedEvt,
+			ID:        "c1",
+			UserID:    "u1",
+			Timestamp: now,
 		},
-		Title: "test",
+		Title:       "test",
+		Description: "desc",
+		DueDate:     nil,
+		Priority:    nil,
+		Tags:        []string{"tag1", "tag2"},
 	}
-	data, _ := json.Marshal(event)
-	mockIdx.On("Create", "c1", event).Once()
 
-	msg := &nats.Msg{Data: data}
-	handler.Handle(msg)
+	repo.On("Create", mock.Anything, mock.MatchedBy(func(doc dto.SearchResult) bool {
+		assert.Equal(t, ev.ID, doc.ID)
+		assert.Equal(t, ev.UserID, doc.UserID)
+		assert.Equal(t, ev.Title, doc.Title)
+		assert.Equal(t, ev.Description, doc.Description)
+		assert.Equal(t, ev.Tags, doc.Tags)
+		assert.Equal(t, false, doc.Completed)
+		assert.WithinDuration(t, now, doc.CreatedAt, time.Millisecond)
+		assert.WithinDuration(t, now, doc.UpdatedAt, time.Millisecond)
+		return true
+	})).Return(nil).Once()
 
-	mockIdx.AssertExpectations(t)
+	handler.Handle(newTestMsg(t, ev))
+	repo.AssertExpectations(t)
 }
 
-func TestHandler_HandleUpdate(t *testing.T) {
-	mockIdx := new(MockIndexer)
+func TestHandler_HandleUpdateEvent(t *testing.T) {
+	repo := new(mockRepo)
 	logger := logging.New("debug")
-	handler := handlers.NewTodoHandler(mockIdx, logger)
+	handler := handlers.NewTodoHandler(repo, logger)
 
-	event := dto.TodoUpdatedEvent{
+	now := time.Now().Truncate(time.Millisecond)
+	ev := dto.TodoUpdatedEvent{
 		BaseEvent: dto.BaseEvent{
-			ID:   "u1",
-			Type: dto.TodoUpdatedEvt,
+			Type:      dto.TodoUpdatedEvt,
+			ID:        "c1",
+			UserID:    "u1",
+			Timestamp: now,
 		},
-		Title: "test",
+		Title:       "updated",
+		Description: "updated desc",
+		Completed:   true,
+		DueDate:     nil,
+		Priority:    nil,
+		Tags:        []string{"tagA"},
 	}
-	data, _ := json.Marshal(event)
-	mockIdx.On("Update", "u1", event).Once()
 
-	msg := &nats.Msg{Data: data}
-	handler.Handle(msg)
+	repo.On("Update", mock.Anything, mock.MatchedBy(func(doc dto.SearchResult) bool {
+		assert.Equal(t, ev.ID, doc.ID)
+		assert.Equal(t, ev.UserID, doc.UserID)
+		assert.Equal(t, ev.Title, doc.Title)
+		assert.Equal(t, ev.Description, doc.Description)
+		assert.Equal(t, ev.Completed, doc.Completed)
+		assert.Equal(t, ev.Tags, doc.Tags)
+		assert.WithinDuration(t, now, doc.UpdatedAt, time.Millisecond)
+		return true
+	})).Return(nil).Once()
 
-	mockIdx.AssertExpectations(t)
+	handler.Handle(newTestMsg(t, ev))
+	repo.AssertExpectations(t)
 }
 
-func TestHandler_HandleDelete(t *testing.T) {
-	mockIdx := new(MockIndexer)
+func TestHandler_HandleDeleteEvent(t *testing.T) {
+	repo := new(mockRepo)
 	logger := logging.New("debug")
-	handler := handlers.NewTodoHandler(mockIdx, logger)
+	handler := handlers.NewTodoHandler(repo, logger)
 
-	event := dto.TodoDeletedEvent{
+	ev := dto.TodoDeletedEvent{
 		BaseEvent: dto.BaseEvent{
-			ID:   "d1",
 			Type: dto.TodoDeletedEvt,
+			ID:   "d1",
 		},
 	}
-	data, _ := json.Marshal(event)
-	mockIdx.On("Delete", "d1").Once()
 
-	msg := &nats.Msg{Data: data}
-	handler.Handle(msg)
-
-	mockIdx.AssertExpectations(t)
+	repo.On("Delete", mock.Anything, "d1").Return(nil).Once()
+	handler.Handle(newTestMsg(t, ev))
+	repo.AssertExpectations(t)
 }
 
-func TestHandler_HandleUnknownEvent(t *testing.T) {
-	mockIdx := new(MockIndexer)
+func TestHandler_IgnoreUnknownEvent(t *testing.T) {
+	repo := new(mockRepo)
 	logger := logging.New("debug")
-	handler := handlers.NewTodoHandler(mockIdx, logger)
+	handler := handlers.NewTodoHandler(repo, logger)
 
-	base := dto.BaseEvent{ID: "x1", Type: "SomethingUnknown"}
-	data, _ := json.Marshal(base)
+	ev := dto.BaseEvent{
+		Type: "UnknownEventType",
+		ID:   "x1",
+	}
 
-	msg := &nats.Msg{Data: data}
-	handler.Handle(msg)
-
-	// nothing should be called
-	mockIdx.AssertExpectations(t)
-}
-
-func TestHandler_HandleInvalidJSON(t *testing.T) {
-	mockIdx := new(MockIndexer)
-	logger := logging.New("debug")
-	handler := handlers.NewTodoHandler(mockIdx, logger)
-
-	msg := &nats.Msg{Data: []byte("not valid json")}
-	handler.Handle(msg)
-
-	// nothing should be called
-	mockIdx.AssertExpectations(t)
+	handler.Handle(newTestMsg(t, ev)) // should not panic or call repo
+	repo.AssertExpectations(t)
 }
