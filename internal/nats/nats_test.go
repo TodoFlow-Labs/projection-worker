@@ -18,8 +18,9 @@ type MockHandler struct {
 	mock.Mock
 }
 
-func (m *MockHandler) Handle(msg *nats.Msg) {
-	m.Called(msg)
+func (m *MockHandler) Handle(msg *nats.Msg) error {
+	args := m.Called(msg)
+	return args.Error(0)
 }
 
 func startEmbeddedNATSServer(t *testing.T) (*server.Server, string) {
@@ -48,7 +49,6 @@ func TestConsumer_ReceivesAndHandlesMessage(t *testing.T) {
 	cfg := &config.Config{NATSURL: natsURL}
 	logger := logging.New("debug")
 
-	// Connect and set up JetStream + stream
 	nc, _ := nats.Connect(natsURL)
 	js, _ := nc.JetStream()
 	_, err := js.AddStream(&nats.StreamConfig{
@@ -57,21 +57,18 @@ func TestConsumer_ReceivesAndHandlesMessage(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// Publish a test message
 	js.Publish("todo.events", []byte(`{"id":"abc","type":"TodoCreatedEvent"}`))
 
 	mockHandler := new(MockHandler)
-	mockHandler.On("Handle", mock.Anything).Once()
+	mockHandler.On("Handle", mock.Anything).Return(nil).Once()
 
 	my_consumer := my_nats.NewConsumer(cfg, logger)
 
-	// Run consume in background
 	go func() {
 		err := my_consumer.Consume(mockHandler)
 		require.NoError(t, err)
 	}()
 
-	// Give it some time to receive and process
 	time.Sleep(1 * time.Second)
 
 	mockHandler.AssertExpectations(t)

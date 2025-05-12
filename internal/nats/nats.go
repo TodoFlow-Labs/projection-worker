@@ -73,8 +73,12 @@ func (c *Consumer) Consume(handler handlers.TodoEventHandler) error {
 						}
 					}()
 
-					c.logger.Debug().Msg("processing message")
-					handler.Handle(msg)
+					err := handler.Handle(msg)
+					if err != nil {
+						c.logger.Error().Err(err).Msg("handler failed, not acking")
+						// optionally: add retry counter, send to DLQ, or just Skip Ack
+						return
+					}
 
 					if err := msg.Ack(); err != nil {
 						c.logger.Error().Err(err).Msg("Ack failed")
