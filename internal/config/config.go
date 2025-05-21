@@ -2,57 +2,42 @@ package config
 
 import (
 	"fmt"
-	"strings"
-
-	"github.com/spf13/pflag"
-	"github.com/spf13/viper"
+	"os"
 )
 
 type Config struct {
-	NATSURL     string `mapstructure:"nats-url"`
-	DatabaseURL string `mapstructure:"database-url"`
-	LogLevel    string `mapstructure:"log-level"`
-	MetricsAddr string `mapstructure:"metrics-addr"`
+	NATSURL     string
+	LogLevel    string
+	MetricsAddr string
+	DatabaseURL string
 }
 
 func Load() (*Config, error) {
-	// Optional config file
-	pflag.String("config", "config.yaml", "Path to config file")
-
-	// Flags
-	pflag.String("nats-url", "", "NATS JetStream server URL")
-	pflag.String("database-url", "", "Database connection URL")
-	pflag.String("log-level", "info", "Log verbosity (debug|info|warn|error)")
-	pflag.String("metrics-addr", ":9090", "Metrics listen address")
-	pflag.Parse()
-
-	// Bind flags
-	if err := viper.BindPFlags(pflag.CommandLine); err != nil {
-		return nil, err
+	cfg := &Config{
+		NATSURL:     os.Getenv("NATS_URL"),
+		LogLevel:    os.Getenv("LOG_LEVEL"),
+		MetricsAddr: os.Getenv("METRICS_ADDR"),
+		DatabaseURL: os.Getenv("DATABASE_URL"),
 	}
 
-	// Support env vars
-	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
-	viper.AutomaticEnv()
-
-	// Load from file if present
-	viper.SetConfigFile(viper.GetString("config"))
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("No config file found, using flags/env: %v\n", err)
-	}
-
-	var cfg Config
-	if err := viper.Unmarshal(&cfg); err != nil {
-		return nil, err
-	}
-
-	// Validate
+	// Validation
+	var missing []string
 	if cfg.NATSURL == "" {
-		return nil, fmt.Errorf("nats-url must be set")
+		missing = append(missing, "NATS_URL")
+	}
+	if cfg.LogLevel == "" {
+		missing = append(missing, "LOG_LEVEL")
+	}
+	if cfg.MetricsAddr == "" {
+		missing = append(missing, "METRICS_ADDR")
 	}
 	if cfg.DatabaseURL == "" {
-		return nil, fmt.Errorf("database-url must be set")
+		missing = append(missing, "DATABASE_URL")
 	}
 
-	return &cfg, nil
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("missing required env vars: %v", missing)
+	}
+
+	return cfg, nil
 }
